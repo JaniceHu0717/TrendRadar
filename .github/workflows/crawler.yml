@@ -68,6 +68,12 @@ jobs:
           NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
           GITHUB_ACTIONS: true
         run: python main.py
+      - name: Run DeepSeek AI analysis
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          WEWORK_WEBHOOK_URL_AI: ${{ secrets.WEWORK_WEBHOOK_URL_AI }}
+          WEWORK_WEBHOOK_URL: ${{ secrets.WEWORK_WEBHOOK_URL }}
+        run: python ai_agent_deepseek.py
 
       - name: Commit and push if changes
         run: |
