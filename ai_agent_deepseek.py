@@ -19,38 +19,71 @@ WEWORK_AI_WEBHOOK = (
     or ""
 )
 
-OUTPUT_DIR = "output"
+OUTPUT_ROOT = "output"
 
 
-def find_latest_report():
-    """
-    在 output 目录里找到最新的报告文件
-    优先 html，没有 html 就找 markdown
-    """
-    html_files = glob.glob(os.path.join(OUTPUT_DIR, "*.html"))
-    md_files = glob.glob(os.path.join(OUTPUT_DIR, "*.md"))
-
-    files = html_files or md_files
-    if not files:
+def find_latest_date_dir():
+    """在 output 下找到最新的日期目录，例如 output/2025年11月21日"""
+    if not os.path.exists(OUTPUT_ROOT):
+        print("output 目录不存在")
         return None
 
-    files.sort(key=os.path.getmtime, reverse=True)
-    return files[0]
+    candidates = []
+    for name in os.listdir(OUTPUT_ROOT):
+        path = os.path.join(OUTPUT_ROOT, name)
+        if os.path.isdir(path):
+            candidates.append(path)
+
+    if not candidates:
+        print("output 下没有日期子目录")
+        return None
+
+    # 按修改时间排序，取最新一个
+    candidates.sort(key=os.path.getmtime, reverse=True)
+    return candidates[0]
 
 
-def extract_text(path: str) -> str:
-    """把报告里的文字提出来，给大模型看"""
+def find_report_file():
+    """
+    在最新日期目录下的 html 子目录中找到要给 AI 看的报告文件：
+    1. 优先包含“汇总”的 html（当日汇总 / 当前榜单汇总）
+    2. 没有的话，取最新修改的 html
+    """
+    date_dir = find_latest_date_dir()
+    if not date_dir:
+        return None
+
+    html_dir = os.path.join(date_dir, "html")
+    if not os.path.exists(html_dir):
+        print(f"{html_dir} 目录不存在")
+        return None
+
+    html_files = glob.glob(os.path.join(html_dir, "*.html"))
+    if not html_files:
+        print(f"{html_dir} 下没有 html 报告文件")
+        return None
+
+    # 优先选文件名包含“汇总”的
+    summary_files = [
+        f for f in html_files
+        if ("汇总" in os.path.basename(f))
+    ]
+    target_list = summary_files or html_files
+
+    # 在候选里按修改时间排序，取最新一个
+    target_list.sort(key=os.path.getmtime, reverse=True)
+    report_file = target_list[0]
+    print("选中的报告文件：", report_file)
+    return report_file
+
+
+def extract_text_from_html(path: str) -> str:
+    """把 HTML 报告里的文字提出来，给大模型看"""
     with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+        html = f.read()
 
-    if path.endswith(".html"):
-        soup = BeautifulSoup(content, "html.parser")
-        text = soup.get_text("\n")
-    else:
-        # markdown 直接当纯文本
-        text = content
-
-    # 去掉空行
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text("\n")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return "\n".join(lines)
 
@@ -66,9 +99,9 @@ def call_deepseek(news_text: str) -> str:
 
 下面是一份今天从各大平台抓取的热点新闻（含 A 股、美股、港股等），内容比较长：
 
----------------- 原始新闻开始 ----------------
+---------------- 原始报告开始 ----------------
 {clipped}
----------------- 原始新闻结束 ----------------
+---------------- 原始报告结束 ----------------
 
 请用【中文】输出一份简洁的解读，不要贴原文，结构参考：
 
@@ -113,17 +146,17 @@ def send_to_wework(markdown_text: str):
 
 
 def main():
-    latest_report = find_latest_report()
-    if not latest_report:
-        print("未找到 output 下的报告文件，跳过 AI 分析")
+    report_file = find_report_file()
+    if not report_file:
+        print("没有找到可用的报告文件，跳过 AI 分析")
         return
 
-    print("正在分析报告：", latest_report)
-    text = extract_text(latest_report)
+    text = extract_text_from_html(report_file)
     if not text:
         print("报告内容为空，跳过 AI 分析")
         return
 
+    print("正在调用 DeepSeek 进行 AI 解读……")
     analysis = call_deepseek(text)
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
